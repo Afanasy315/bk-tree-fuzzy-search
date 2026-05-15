@@ -153,7 +153,6 @@ public:
     }
 };
 
-// ===== НАИВНЫЙ АЛГОРИТМ (ПОЛНЫЙ ПЕРЕБОР) =====
 void NaiveSearch(const std::vector<std::string> &dictionary,
                  const std::string &query, int k,
                  int &visited, int &found) {
@@ -210,7 +209,7 @@ std::vector<std::string> GenerateQueries(int count, std::mt19937 &generator) {
 }
 
 int main() {
-    std::vector<int> dictionary_sizes = {1000, 10000, 100000};
+    std::vector<int> dictionary_sizes = {1000, 5000, 10000, 50000, 100000};
     std::vector<int> k_values = {0, 1, 2, 3};
 
     int query_count = 100;
@@ -219,14 +218,12 @@ int main() {
 
     std::ofstream file("bk_benchmark.csv");
 
-    file << "N,build_time_us,node_count,avg_branching,max_depth";
-    file << ",naive_time_us";  // время наивного алгоритма (один раз для всех k)
+    file << "N,build_time_us,node_count,avg_branching,max_depth,naive_time_us";
     for (int k : k_values) {
-        file << ",bk_k" << k << "_time_us"
-             << ",bk_k" << k << "_visited"
-             << ",bk_k" << k << "_found";
+        if (k == 0) continue;
+        file << ",bk_k" << k << "_time_us,bk_k" << k << "_visited,bk_k" << k << "_found,bk_k" << k << "_speedup";
     }
-    file << "\n";
+    file << ",bk_k0_time_us,bk_k0_visited,bk_k0_found\n";
 
     for (int n : dictionary_sizes) {
         std::cout << "\n=== N = " << n << " ===\n";
@@ -234,7 +231,6 @@ int main() {
         std::vector<std::string> dictionary = GenerateDictionary(n, generator);
         std::vector<std::string> queries = GenerateQueries(query_count, generator);
 
-        // ===== БЕНЧМАРКИНГ ПОСТРОЕНИЯ BK-ДЕРЕВА =====
         auto build_start = std::chrono::high_resolution_clock::now();
 
         BKTree tree;
@@ -252,14 +248,11 @@ int main() {
         double avg_branching = tree.GetAverageBranching();
         int max_depth = tree.GetMaxDepth();
 
-        std::cout << "Построение BK-дерева: " << build_time_us << " us\n"
-                  << "  узлов: " << node_count
-                  << ", ветвление: " << avg_branching
-                  << ", глубина: " << max_depth << "\n";
+        std::cout << "build_time_us: " << build_time_us << "\n"
+                  << "node_count: " << node_count
+                  << ", avg_branching: " << avg_branching
+                  << ", max_depth: " << max_depth << "\n";
 
-        // ===== БЕНЧМАРКИНГ НАИВНОГО АЛГОРИТМА =====
-        // (один раз, результат одинаков для всех k, но для каждого k разное found)
-        // Измерим для k=0 как базовое время (оно же будет для k=1,2,3)
         long long naive_total_time = 0;
 
         for (const std::string &query : queries) {
@@ -275,11 +268,11 @@ int main() {
 
         double naive_avg_time_us = static_cast<double>(naive_total_time) / query_count;
 
-        std::cout << "Наивный поиск: " << naive_avg_time_us << " us (среднее на запрос)\n";
+        std::cout << "naive_avg_time_us: " << naive_avg_time_us << "\n";
 
-        // ===== БЕНЧМАРКИНГ ПОИСКА BK-ДЕРЕВА =====
-        file << n << "," << build_time_us << "," << node_count << "," << avg_branching << "," << max_depth;
-        file << "," << naive_avg_time_us;
+        std::vector<double> bk_times(4, 0.0);
+        std::vector<double> bk_visited(4, 0.0);
+        std::vector<double> bk_found(4, 0.0);
 
         for (int k : k_values) {
             long long total_time = 0;
@@ -305,24 +298,30 @@ int main() {
                 total_found += found;
             }
 
-            double avg_time = static_cast<double>(total_time) / query_count;
-            double avg_visited = static_cast<double>(total_visited) / query_count;
-            double avg_found = static_cast<double>(total_found) / query_count;
+            bk_times[k] = static_cast<double>(total_time) / query_count;
+            bk_visited[k] = static_cast<double>(total_visited) / query_count;
+            bk_found[k] = static_cast<double>(total_found) / query_count;
 
-            file << "," << avg_time << "," << avg_visited << "," << avg_found;
-
-            std::cout << "BK-дерево k=" << k
-                      << ": время=" << avg_time << " us"
-                      << ", посещено=" << avg_visited
-                      << ", найдено=" << avg_found << "\n";
+            std::cout << "k=" << k
+                      << " time_us: " << bk_times[k]
+                      << " visited: " << bk_visited[k]
+                      << " found: " << bk_found[k] << "\n";
         }
 
-        file << "\n";
+        file << n << "," << build_time_us << "," << node_count << "," << avg_branching << "," << max_depth;
+        file << "," << naive_avg_time_us;
+
+        for (int k : {1, 2, 3}) {
+            double speedup = naive_avg_time_us / bk_times[k];
+            file << "," << bk_times[k] << "," << bk_visited[k] << "," << bk_found[k] << "," << speedup;
+        }
+
+        file << "," << bk_times[0] << "," << bk_visited[0] << "," << bk_found[0] << "\n";
     }
 
     file.close();
 
-    std::cout << "\nРезультаты сохранены в bk_benchmark.csv\n";
+    std::cout << "\nResults saved to bk_benchmark.csv\n";
 
     return 0;
 }
